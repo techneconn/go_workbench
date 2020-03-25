@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 	"time"
 )
 
+// goroutine that leaks (read version)
 func goroutineLeak() {
 	doWork := func(strings <-chan string) <-chan interface{} {
 		completed := make(chan interface{})
@@ -24,7 +26,7 @@ func goroutineLeak() {
 	fmt.Println("Done.")
 }
 
-// with cancellation
+// goroutine that does not leak (read version, cancelation)
 func goroutineLeak2() {
 	doWork := func(done <-chan interface{}, strings <-chan string) <-chan interface{} {
 		terminated := make(chan interface{})
@@ -55,5 +57,59 @@ func goroutineLeak2() {
 
 	<-terminated
 	fmt.Println("Done.")
+}
+
+// goroutine that leaks (write version)
+func goroutineLeak3() {
+	newRandStream := func() <-chan int {
+		randStream := make(chan int)
+		go func() {
+			// this goroutine never exits
+			defer fmt.Println("newRandStream closure exited.")
+			defer close(randStream)
+			for {
+				randStream <- rand.Int()
+			}
+		}()
+		return randStream
+	}
+
+	randStream := newRandStream()
+	fmt.Println("3 random ints.")
+	for i := 1; i <= 3; i++ {
+		fmt.Printf("%d: %d\n", i, <-randStream)
+	}
+
+}
+
+// goroutine that leaks (write version)
+func goroutineLeak4() {
+	newRandStream := func(done <-chan interface{}) <-chan int {
+		randStream := make(chan int)
+		go func() {
+			// this goroutine never exits
+			defer fmt.Println("newRandStream closure exited.")
+			defer close(randStream)
+			for {
+				select {
+				case randStream <- rand.Int():
+				case <-done:
+					return
+				}
+			}
+		}()
+		return randStream
+	}
+
+	done := make(chan interface{})
+	randStream := newRandStream(done)
+	fmt.Println("3 random ints.")
+	for i := 1; i <= 3; i++ {
+		fmt.Printf("%d: %d\n", i, <-randStream)
+	}
+	close(done)
+
+	// Simulate ongoing work
+	time.Sleep(1 * time.Second)
 
 }
